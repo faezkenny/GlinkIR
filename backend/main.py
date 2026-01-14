@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import httpx
+from dotenv import load_dotenv
 from scraper import scrape_photo_links
 from processor import get_processor, ImageProcessor
 from cloud_providers import (
@@ -23,6 +24,9 @@ from cloud_providers import (
     download_onedrive_file,
 )
 import uvicorn
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(title="IRPhotolink API", version="1.1.0")
 
