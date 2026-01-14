@@ -42,9 +42,20 @@ MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8
 
 # Enable CORS for frontend
 # SECURITY: Never use "*" with allow_credentials=True in production!
+# For development, allow common localhost origins
+allowed_origins = [FRONTEND_ORIGIN] if FRONTEND_ORIGIN else []
+# Add common development origins
+if FRONTEND_ORIGIN:
+    allowed_origins.extend([
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN] if FRONTEND_ORIGIN else [],  # Only allow configured origin
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST"],  # Limit to needed methods only
     allow_headers=["Content-Type", "Authorization"],

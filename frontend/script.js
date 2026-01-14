@@ -78,12 +78,17 @@ async function updateProviderUI(url) {
     
     let authStatus = { loggedIn: false, google: false, microsoft: false };
     try {
-        const response = await fetch(`${API_URL}/auth/me`, { credentials: 'include' });
+        const response = await fetch(`${API_URL}/auth/me`, { 
+            credentials: 'include',
+            mode: 'cors'
+        });
         if (response.ok) {
             authStatus = await response.json();
         }
     } catch (error) {
-        console.error('Error checking auth status:', error);
+        // Silently fail - user might not be logged in yet
+        console.debug('Auth check failed (this is OK if not logged in):', error.message);
+        authStatus = { loggedIn: false, google: false, microsoft: false };
     }
     
     if (provider === 'google_drive') {
@@ -160,10 +165,20 @@ microsoftLoginBtn.addEventListener('click', () => {
 
 // Check auth status
 async function checkAuthStatus() {
+    if (!loginStatus || !loginStatusText) {
+        return;
+    }
+    
     try {
         const response = await fetch(`${API_URL}/auth/me`, {
-            credentials: 'include'
+            credentials: 'include',
+            mode: 'cors'
         });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
         const data = await response.json();
         
         loginStatus.classList.remove('hidden');
@@ -180,12 +195,16 @@ async function checkAuthStatus() {
         }
         
         // Update provider UI if URL is already entered
-        const url = folderUrlInput.value.trim();
+        const url = folderUrlInput ? folderUrlInput.value.trim() : '';
         if (url) {
             updateProviderUI(url);
         }
     } catch (error) {
-        console.error('Error checking auth:', error);
+        // Don't show error if backend is not available - user might be setting up
+        console.debug('Auth check failed (backend may not be running):', error.message);
+        loginStatus.classList.remove('hidden');
+        loginStatusText.textContent = 'Backend not connected. Make sure the server is running on port 8000.';
+        loginStatus.className = 'bg-gray-50 border border-gray-200 rounded-lg shadow-md p-4 mb-6';
     }
 }
 

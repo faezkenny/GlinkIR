@@ -89,13 +89,15 @@ source venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-2. Open `frontend/index.html` in your browser or serve it with a simple HTTP server:
+2. **IMPORTANT**: Serve the frontend with an HTTP server (don't open HTML file directly):
 ```bash
 cd frontend
 python3 -m http.server 8080
 ```
 
 Then navigate to `http://localhost:8080`
+
+**Note**: Opening `index.html` directly as a file (`file://`) will cause CORS errors. Always use an HTTP server.
 
 ## Usage
 
