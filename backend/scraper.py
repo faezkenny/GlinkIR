@@ -110,6 +110,121 @@ class PhotoScraper:
         
         return unique_urls
 
+    async def scrape_google_drive(self, url: str) -> List[str]:
+        """
+        Scrape Google Drive shared folder link to extract all image URLs.
+        
+        Args:
+            url: Google Drive shared folder URL
+            
+        Returns:
+            List of direct image URLs
+        """
+        if not self.browser:
+            raise RuntimeError("Browser not initialized. Use async context manager.")
+        
+        page = await self.browser.new_page()
+        image_urls = []
+        
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(5000)  # Wait for Drive to load
+            
+            # Scroll to load all images (Google Drive uses infinite scroll)
+            last_height = 0
+            scroll_attempts = 0
+            max_scrolls = 100  # Drive folders can have many files
+            
+            while scroll_attempts < max_scrolls:
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.wait_for_timeout(2000)
+                new_height = await page.evaluate("document.body.scrollHeight")
+                if new_height == last_height:
+                    break
+                last_height = new_height
+                scroll_attempts += 1
+            
+            # Try to find image preview URLs in Google Drive
+            # Google Drive uses various selectors for images
+            images = await page.query_selector_all("img")
+            
+            for img in images:
+                src = await img.get_attribute("src")
+                data_src = await img.get_attribute("data-src")
+                srcset = await img.get_attribute("srcset")
+                
+                # Check src attribute
+                if src:
+                    # Look for Google Drive image URLs
+                    if ("drive.google.com" in src or "googleusercontent.com" in src or 
+                        "lh3.googleusercontent.com" in src or "lh4.googleusercontent.com" in src or
+                        "lh5.googleusercontent.com" in src or "lh6.googleusercontent.com" in src):
+                        # Try to get full resolution
+                        if "=w" in src or "=h" in src:
+                            # Replace with higher resolution
+                            src = re.sub(r'=w\d+-h\d+', '=s2048', src)
+                            src = re.sub(r'=w\d+', '=s2048', src)
+                            src = re.sub(r'=h\d+', '=s2048', src)
+                        # Filter out small thumbnails/icons but include image previews
+                        if any(ext in src.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']) or '=s' in src or '=w' in src:
+                            if src not in image_urls and 'icon' not in src.lower() and 'avatar' not in src.lower():
+                                image_urls.append(src)
+                
+                # Check data-src attribute (lazy loading)
+                if data_src:
+                    if ("googleusercontent.com" in data_src or "drive.google.com" in data_src):
+                        if "=w" in data_src or "=h" in data_src:
+                            data_src = re.sub(r'=w\d+-h\d+', '=s2048', data_src)
+                            data_src = re.sub(r'=w\d+', '=s2048', data_src)
+                            data_src = re.sub(r'=h\d+', '=s2048', data_src)
+                        if data_src not in image_urls and 'icon' not in data_src.lower():
+                            image_urls.append(data_src)
+            
+            # Also try to find file IDs from the page source and convert to direct image URLs
+            page_content = await page.content()
+            # Extract file IDs from various Google Drive URL patterns
+            file_id_patterns = [
+                r'file/d/([a-zA-Z0-9_-]+)',
+                r'id=([a-zA-Z0-9_-]+)',
+                r'folders/([a-zA-Z0-9_-]+)',
+            ]
+            
+            for pattern in file_id_patterns:
+                matches = re.findall(pattern, page_content)
+                for file_id in matches:
+                    if len(file_id) > 10:  # Valid file IDs are usually longer
+                        direct_url = f"https://drive.google.com/uc?export=view&id={file_id}"
+                        if direct_url not in image_urls:
+                            image_urls.append(direct_url)
+            
+            # Also try to find download links for images
+            links = await page.query_selector_all("a[href*='drive.google.com']")
+            for link in links:
+                href = await link.get_attribute("href")
+                if href and ("file/d/" in href):
+                    # Convert to direct image URL
+                    file_id_match = re.search(r'file/d/([a-zA-Z0-9_-]+)', href)
+                    if file_id_match:
+                        file_id = file_id_match.group(1)
+                        direct_url = f"https://drive.google.com/uc?export=view&id={file_id}"
+                        if direct_url not in image_urls:
+                            image_urls.append(direct_url)
+        
+        except Exception as e:
+            print(f"Error scraping Google Drive: {e}")
+        finally:
+            await page.close()
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_urls = []
+        for url in image_urls:
+            if url not in seen:
+                seen.add(url)
+                unique_urls.append(url)
+        
+        return unique_urls
+
     async def scrape_link(self, url: str) -> List[str]:
         """
         Generic scraper that detects the type of link and uses appropriate method.
@@ -122,6 +237,8 @@ class PhotoScraper:
         """
         if "photos.google.com" in url or "photos.app.goo.gl" in url:
             return await self.scrape_google_photos(url)
+        elif "drive.google.com" in url:
+            return await self.scrape_google_drive(url)
         else:
             # For other cloud services, try generic scraping
             return await self.scrape_generic(url)

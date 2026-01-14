@@ -13,6 +13,7 @@ from typing import List, Dict, Optional, Tuple
 import hashlib
 import os
 import json
+import re
 
 
 class ImageProcessor:
@@ -221,9 +222,26 @@ class ImageProcessor:
             
             # Check if search text is in any detected text
             search_text_lower = search_text.lower().strip()
+            search_text_clean = re.sub(r'[^\w\s]', '', search_text_lower)  # Remove punctuation
+            
             for detected_text in detected_texts:
-                if search_text_lower in detected_text.lower():
+                detected_lower = detected_text.lower()
+                detected_clean = re.sub(r'[^\w\s]', '', detected_lower)
+                
+                # Direct match
+                if search_text_lower in detected_lower:
                     return True
+                
+                # Clean match (without punctuation)
+                if search_text_clean in detected_clean:
+                    return True
+                
+                # For numbers, also check if the number appears as standalone or in context
+                if search_text_clean.isdigit():
+                    # Look for the number as a word or standalone
+                    number_pattern = r'\b' + re.escape(search_text_clean) + r'\b'
+                    if re.search(number_pattern, detected_clean):
+                        return True
             
             return False
         except Exception as e:

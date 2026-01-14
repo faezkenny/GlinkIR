@@ -91,7 +91,12 @@
         <!-- Loading Indicator -->
         <div id="loadingIndicator" class="hidden text-center py-8">
             <div class="loading-spinner mx-auto mb-4"></div>
-            <p class="text-gray-600">Processing images... This may take a few minutes.</p>
+            <p class="text-gray-600 mb-2">Processing images... This may take a few minutes.</p>
+            <!-- Progress Bar -->
+            <div class="w-full max-w-md mx-auto bg-gray-200 rounded-full h-4 mb-2">
+                <div id="progressBar" class="bg-blue-600 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p id="progressText" class="text-sm text-gray-500">0%</p>
         </div>
 
         <!-- Error Message -->

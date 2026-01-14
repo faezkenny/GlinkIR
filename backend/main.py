@@ -4,9 +4,10 @@ Handles photo link scraping and image search requests.
 """
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Optional
 import asyncio
+import json
 from scraper import scrape_photo_links
 from processor import get_processor, ImageProcessor
 import uvicorn
@@ -114,11 +115,33 @@ async def search_photos(
         
         # Step 3: Search for matches
         print("Processing images for matches...")
-        results = processor.process_images(
-            image_urls_by_album,
-            face_encodings=face_encodings,
-            search_text=search_text
-        )
+        
+        # Process images with progress tracking
+        results = {}
+        processed_count = 0
+        
+        for album_url, image_urls in image_urls_by_album.items():
+            matching_images = []
+            
+            for idx, image_url in enumerate(image_urls):
+                match_found = False
+                
+                # Check face match if face encodings provided
+                if face_encodings:
+                    if processor.find_faces_in_image(image_url, face_encodings):
+                        match_found = True
+                
+                # Check text match if search text provided
+                if search_text and not match_found:
+                    if processor.find_text_in_image(image_url, search_text):
+                        match_found = True
+                
+                if match_found:
+                    matching_images.append(image_url)
+                
+                processed_count += 1
+            
+            results[album_url] = matching_images
         
         # Count total matches
         total_matches = sum(len(urls) for urls in results.values())

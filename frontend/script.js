@@ -15,6 +15,8 @@ const resultsGrid = document.getElementById('resultsGrid');
 const resultsSummary = document.getElementById('resultsSummary');
 const faceImagePreview = document.getElementById('faceImagePreview');
 const previewImg = document.getElementById('previewImg');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
 
 // Show face image preview
 faceImageInput.addEventListener('change', (e) => {
@@ -68,13 +70,29 @@ searchForm.addEventListener('submit', async (e) => {
             formData.append('search_text', searchText);
         }
         
+        // Update progress
+        updateProgress(10, 'Preparing request...');
+        
         // Make API request
         const response = await fetch(`${API_URL}/search`, {
             method: 'POST',
             body: formData
         });
         
+        updateProgress(30, 'Scraping photo links...');
+        
+        // Simulate progress while waiting for response
+        const progressInterval = setInterval(() => {
+            const currentProgress = parseInt(progressBar.style.width) || 30;
+            if (currentProgress < 90) {
+                updateProgress(currentProgress + 2, 'Processing images...');
+            }
+        }, 1000);
+        
         const data = await response.json();
+        
+        clearInterval(progressInterval);
+        updateProgress(100, 'Complete!');
         
         if (!response.ok) {
             throw new Error(data.detail || 'Search failed');
@@ -87,7 +105,9 @@ searchForm.addEventListener('submit', async (e) => {
         console.error('Error:', error);
         showError(error.message || 'An error occurred while searching. Please try again.');
     } finally {
-        setLoading(false);
+        setTimeout(() => {
+            setLoading(false);
+        }, 500);
     }
 });
 
@@ -96,10 +116,23 @@ function setLoading(isLoading) {
         loadingIndicator.classList.remove('hidden');
         searchButton.disabled = true;
         searchButton.classList.add('opacity-50', 'cursor-not-allowed');
+        updateProgress(0, 'Starting...');
     } else {
         loadingIndicator.classList.add('hidden');
         searchButton.disabled = false;
         searchButton.classList.remove('opacity-50', 'cursor-not-allowed');
+        updateProgress(0, '');
+    }
+}
+
+function updateProgress(percentage, message) {
+    if (progressBar && progressText) {
+        progressBar.style.width = `${Math.min(100, Math.max(0, percentage))}%`;
+        if (message) {
+            progressText.textContent = `${Math.round(percentage)}% - ${message}`;
+        } else {
+            progressText.textContent = `${Math.round(percentage)}%`;
+        }
     }
 }
 
