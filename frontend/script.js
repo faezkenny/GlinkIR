@@ -1,5 +1,7 @@
-// API endpoint (adjust if your backend runs on a different port)
-const API_URL = 'http://localhost:8000';
+// API endpoint - auto-detect for Vercel deployment
+const API_URL = window.location.origin.includes('vercel.app') 
+    ? window.location.origin 
+    : 'http://localhost:8000';
 
 // DOM elements
 const searchForm = document.getElementById('searchForm');

@@ -31,14 +31,21 @@ load_dotenv()
 app = FastAPI(title="IRPhotolink API", version="1.1.0")
 
 # Configuration from environment
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8080")
+# For Vercel, use VERCEL_URL if available
+VERCEL_URL = os.getenv("VERCEL_URL", "")
+if VERCEL_URL:
+    BASE_URL = f"https://{VERCEL_URL}"
+else:
+    BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", BASE_URL.replace(":8000", ":8080") if ":8000" in BASE_URL else BASE_URL)
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", f"{BASE_URL}/auth/google/callback")
 
 MICROSOFT_CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID", "")
 MICROSOFT_CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET", "")
-MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8000/auth/microsoft/callback")
+MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", f"{BASE_URL}/auth/microsoft/callback")
 
 # Enable CORS for frontend
 # SECURITY: Never use "*" with allow_credentials=True in production!
