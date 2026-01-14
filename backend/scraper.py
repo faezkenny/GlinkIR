@@ -180,35 +180,74 @@ class PhotoScraper:
                         if data_src not in image_urls and 'icon' not in data_src.lower():
                             image_urls.append(data_src)
             
-            # Also try to find file IDs from the page source and convert to direct image URLs
+            # Try to find file IDs from data attributes and links
+            # Google Drive stores file IDs in data attributes
+            file_elements = await page.query_selector_all("[data-id], [data-target-id], a[href*='file/d/']")
+            seen_file_ids = set()
+            
+            for element in file_elements:
+                # Try data-id attribute
+                data_id = await element.get_attribute("data-id")
+                if data_id and len(data_id) > 20:  # Valid file IDs are usually 33+ chars
+                    if data_id not in seen_file_ids:
+                        seen_file_ids.add(data_id)
+                        direct_url = f"https://drive.google.com/uc?export=view&id={data_id}"
+                        if direct_url not in image_urls:
+                            image_urls.append(direct_url)
+                
+                # Try data-target-id attribute
+                target_id = await element.get_attribute("data-target-id")
+                if target_id and len(target_id) > 20:
+                    if target_id not in seen_file_ids:
+                        seen_file_ids.add(target_id)
+                        direct_url = f"https://drive.google.com/uc?export=view&id={target_id}"
+                        if direct_url not in image_urls:
+                            image_urls.append(direct_url)
+                
+                # Try href attribute
+                href = await element.get_attribute("href")
+                if href and "file/d/" in href:
+                    file_id_match = re.search(r'file/d/([a-zA-Z0-9_-]{20,})', href)
+                    if file_id_match:
+                        file_id = file_id_match.group(1)
+                        if file_id not in seen_file_ids:
+                            seen_file_ids.add(file_id)
+                            direct_url = f"https://drive.google.com/uc?export=view&id={file_id}"
+                            if direct_url not in image_urls:
+                                image_urls.append(direct_url)
+            
+            # Also extract from page content using more specific patterns
             page_content = await page.content()
-            # Extract file IDs from various Google Drive URL patterns
+            # Look for file IDs in JSON data structures
             file_id_patterns = [
-                r'file/d/([a-zA-Z0-9_-]+)',
-                r'id=([a-zA-Z0-9_-]+)',
-                r'folders/([a-zA-Z0-9_-]+)',
+                r'"fileId":"([a-zA-Z0-9_-]{20,})"',
+                r'"id":"([a-zA-Z0-9_-]{20,})"',
+                r'file/d/([a-zA-Z0-9_-]{20,})',
+                r'id=([a-zA-Z0-9_-]{20,})',
             ]
             
             for pattern in file_id_patterns:
                 matches = re.findall(pattern, page_content)
                 for file_id in matches:
-                    if len(file_id) > 10:  # Valid file IDs are usually longer
+                    if len(file_id) > 20 and file_id not in seen_file_ids:  # Valid file IDs are usually 33+ chars
+                        seen_file_ids.add(file_id)
                         direct_url = f"https://drive.google.com/uc?export=view&id={file_id}"
                         if direct_url not in image_urls:
                             image_urls.append(direct_url)
             
-            # Also try to find download links for images
-            links = await page.query_selector_all("a[href*='drive.google.com']")
-            for link in links:
+            # Also try to find all links with file IDs
+            all_links = await page.query_selector_all("a")
+            for link in all_links:
                 href = await link.get_attribute("href")
-                if href and ("file/d/" in href):
-                    # Convert to direct image URL
-                    file_id_match = re.search(r'file/d/([a-zA-Z0-9_-]+)', href)
+                if href and "file/d/" in href:
+                    file_id_match = re.search(r'file/d/([a-zA-Z0-9_-]{20,})', href)
                     if file_id_match:
                         file_id = file_id_match.group(1)
-                        direct_url = f"https://drive.google.com/uc?export=view&id={file_id}"
-                        if direct_url not in image_urls:
-                            image_urls.append(direct_url)
+                        if file_id not in seen_file_ids:
+                            seen_file_ids.add(file_id)
+                            direct_url = f"https://drive.google.com/uc?export=view&id={file_id}"
+                            if direct_url not in image_urls:
+                                image_urls.append(direct_url)
         
         except Exception as e:
             print(f"Error scraping Google Drive: {e}")

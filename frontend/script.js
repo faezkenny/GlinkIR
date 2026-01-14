@@ -71,7 +71,7 @@ searchForm.addEventListener('submit', async (e) => {
         }
         
         // Update progress
-        updateProgress(10, 'Preparing request...');
+        updateProgress(5, 'Preparing request...');
         
         // Make API request
         const response = await fetch(`${API_URL}/search`, {
@@ -79,20 +79,40 @@ searchForm.addEventListener('submit', async (e) => {
             body: formData
         });
         
-        updateProgress(30, 'Scraping photo links...');
+        updateProgress(15, 'Scraping photo links...');
+        
+        // Track progress with better estimation
+        let currentProgress = 15;
+        let progressStep = 0;
         
         // Simulate progress while waiting for response
+        // We'll update based on estimated time
         const progressInterval = setInterval(() => {
-            const currentProgress = parseInt(progressBar.style.width) || 30;
-            if (currentProgress < 90) {
-                updateProgress(currentProgress + 2, 'Processing images...');
+            currentProgress = parseInt(progressBar.style.width) || 15;
+            if (currentProgress < 95) {
+                // Gradually increase progress
+                progressStep += 0.5;
+                const newProgress = Math.min(95, 15 + progressStep);
+                updateProgress(newProgress, 'Processing images...');
             }
-        }, 1000);
+        }, 500);
         
         const data = await response.json();
         
         clearInterval(progressInterval);
-        updateProgress(100, 'Complete!');
+        
+        // Show final progress with image count
+        const totalImages = data.total_images_searched || 0;
+        const imagesByAlbum = data.images_by_album || {};
+        let albumInfo = '';
+        if (Object.keys(imagesByAlbum).length > 0) {
+            const albumCounts = Object.entries(imagesByAlbum)
+                .map(([url, count]) => `${truncateUrl(url, 30)}: ${count} images`)
+                .join(', ');
+            albumInfo = ` (${albumCounts})`;
+        }
+        
+        updateProgress(100, `Complete! Searched ${totalImages} images${albumInfo}`);
         
         if (!response.ok) {
             throw new Error(data.detail || 'Search failed');
@@ -153,9 +173,24 @@ function displayResults(data) {
     const results = data.results || {};
     const totalMatches = data.total_matches || 0;
     const totalSearched = data.total_images_searched || 0;
+    const imagesByAlbum = data.images_by_album || {};
     
-    // Update summary
-    resultsSummary.textContent = `Found ${totalMatches} matching image(s) out of ${totalSearched} total images searched.`;
+    // Update summary with detailed info
+    let summaryText = `Found ${totalMatches} matching image(s) out of ${totalSearched} total images searched.`;
+    
+    if (Object.keys(imagesByAlbum).length > 0) {
+        summaryText += '\n\nImages found per link:';
+        for (const [url, count] of Object.entries(imagesByAlbum)) {
+            summaryText += `\n• ${truncateUrl(url, 50)}: ${count} images`;
+        }
+    }
+    
+    resultsSummary.innerHTML = summaryText.split('\n').map(line => {
+        if (line.startsWith('•')) {
+            return `<div class="text-sm mt-1">${line}</div>`;
+        }
+        return `<div>${line}</div>`;
+    }).join('');
     
     // Clear previous results
     resultsGrid.innerHTML = '';

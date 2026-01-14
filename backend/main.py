@@ -120,8 +120,13 @@ async def search_photos(
         results = {}
         processed_count = 0
         
+        # Calculate total images for progress tracking
+        total_images_to_process = total_images
+        
         for album_url, image_urls in image_urls_by_album.items():
             matching_images = []
+            
+            print(f"Processing {len(image_urls)} images from {album_url}")
             
             for idx, image_url in enumerate(image_urls):
                 match_found = False
@@ -140,6 +145,10 @@ async def search_photos(
                     matching_images.append(image_url)
                 
                 processed_count += 1
+                
+                # Log progress every 10 images or at the end
+                if (processed_count % 10 == 0) or (processed_count == total_images_to_process):
+                    print(f"Processed {processed_count}/{total_images_to_process} images...")
             
             results[album_url] = matching_images
         
@@ -151,7 +160,8 @@ async def search_photos(
             "message": f"Found {total_matches} matching images",
             "results": results,
             "total_matches": total_matches,
-            "total_images_searched": total_images
+            "total_images_searched": total_images,
+            "images_by_album": {url: len(urls) for url, urls in image_urls_by_album.items()}
         })
     
     except HTTPException:
