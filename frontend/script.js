@@ -3,7 +3,7 @@ const API_URL = 'http://localhost:8000';
 
 // DOM elements
 const searchForm = document.getElementById('searchForm');
-const linksInput = document.getElementById('linksInput');
+const folderUrlInput = document.getElementById('folderUrlInput');
 const faceImageInput = document.getElementById('faceImageInput');
 const searchTextInput = document.getElementById('searchTextInput');
 const searchButton = document.getElementById('searchButton');
@@ -17,6 +17,77 @@ const faceImagePreview = document.getElementById('faceImagePreview');
 const previewImg = document.getElementById('previewImg');
 const progressBar = document.getElementById('progressBar');
 const progressText = document.getElementById('progressText');
+const loginStatus = document.getElementById('loginStatus');
+const loginStatusText = document.getElementById('loginStatusText');
+const googleLoginBtn = document.getElementById('googleLoginBtn');
+const microsoftLoginBtn = document.getElementById('microsoftLoginBtn');
+const providerHint = document.getElementById('providerHint');
+
+let currentJobId = null;
+let jobPollInterval = null;
+
+// Detect provider from URL
+function detectProvider(url) {
+    if (url.includes('drive.google.com') || url.includes('docs.google.com')) {
+        return 'google_drive';
+    } else if (url.includes('onedrive.live.com') || url.includes('1drv.ms') || url.includes('sharepoint.com')) {
+        return 'onedrive';
+    }
+    return 'unknown';
+}
+
+// Update provider hint
+folderUrlInput.addEventListener('input', (e) => {
+    const url = e.target.value.trim();
+    if (url) {
+        const provider = detectProvider(url);
+        if (provider === 'google_drive') {
+            providerHint.textContent = 'Google Drive folder detected. Please login with Google.';
+            providerHint.className = 'mt-1 text-sm text-blue-600';
+        } else if (provider === 'onedrive') {
+            providerHint.textContent = 'OneDrive folder detected. Please login with Microsoft.';
+            providerHint.className = 'mt-1 text-sm text-blue-600';
+        } else {
+            providerHint.textContent = 'Enter a Google Drive or OneDrive folder link';
+            providerHint.className = 'mt-1 text-sm text-gray-500';
+        }
+    } else {
+        providerHint.textContent = 'Enter a Google Drive or OneDrive folder link';
+        providerHint.className = 'mt-1 text-sm text-gray-500';
+    }
+});
+
+// Login buttons
+googleLoginBtn.addEventListener('click', () => {
+    window.location.href = `${API_URL}/auth/google/start`;
+});
+
+microsoftLoginBtn.addEventListener('click', () => {
+    window.location.href = `${API_URL}/auth/microsoft/start`;
+});
+
+// Check auth status
+async function checkAuthStatus() {
+    try {
+        const response = await fetch(`${API_URL}/auth/me`, {
+            credentials: 'include'
+        });
+        const data = await response.json();
+        
+        if (data.loggedIn) {
+            loginStatus.classList.remove('hidden');
+            const providers = [];
+            if (data.google) providers.push('Google');
+            if (data.microsoft) providers.push('Microsoft');
+            loginStatusText.textContent = `Logged in with: ${providers.join(', ')}`;
+        } else {
+            loginStatus.classList.remove('hidden');
+            loginStatusText.textContent = 'Not logged in. Please login to search cloud folders.';
+        }
+    } catch (error) {
+        console.error('Error checking auth:', error);
+    }
+}
 
 // Show face image preview
 faceImageInput.addEventListener('change', (e) => {
@@ -38,17 +109,34 @@ searchForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     
     // Validate inputs
-    const links = linksInput.value.trim();
+    const folderUrl = folderUrlInput.value.trim();
     const faceImage = faceImageInput.files[0];
     const searchText = searchTextInput.value.trim();
     
-    if (!links) {
-        showError('Please enter at least one photo album link');
+    if (!folderUrl) {
+        showError('Please enter a folder link');
+        return;
+    }
+    
+    const provider = detectProvider(folderUrl);
+    if (provider === 'unknown') {
+        showError('Please enter a valid Google Drive or OneDrive folder link');
         return;
     }
     
     if (!faceImage && !searchText) {
         showError('Please provide either a face image or search text');
+        return;
+    }
+    
+    // Check auth
+    const authStatus = await fetch(`${API_URL}/auth/me`, { credentials: 'include' }).then(r => r.json());
+    if (provider === 'google_drive' && !authStatus.google) {
+        showError('Please login with Google first');
+        return;
+    }
+    if (provider === 'onedrive' && !authStatus.microsoft) {
+        showError('Please login with Microsoft first');
         return;
     }
     
@@ -60,7 +148,7 @@ searchForm.addEventListener('submit', async (e) => {
     try {
         // Prepare form data
         const formData = new FormData();
-        formData.append('links', links);
+        formData.append('folder_url', folderUrl);
         
         if (faceImage) {
             formData.append('face_image', faceImage);
@@ -70,66 +158,138 @@ searchForm.addEventListener('submit', async (e) => {
             formData.append('search_text', searchText);
         }
         
-        // Update progress
-        updateProgress(5, 'Preparing request...');
+        updateProgress(5, 'Starting job...');
         
-        // Make API request
-        const response = await fetch(`${API_URL}/search`, {
+        // Start job
+        const response = await fetch(`${API_URL}/jobs/start`, {
             method: 'POST',
-            body: formData
+            body: formData,
+            credentials: 'include'
         });
         
-        updateProgress(15, 'Scraping photo links...');
-        
-        // Track progress with better estimation
-        let currentProgress = 15;
-        let progressStep = 0;
-        
-        // Simulate progress while waiting for response
-        // We'll update based on estimated time
-        const progressInterval = setInterval(() => {
-            currentProgress = parseInt(progressBar.style.width) || 15;
-            if (currentProgress < 95) {
-                // Gradually increase progress
-                progressStep += 0.5;
-                const newProgress = Math.min(95, 15 + progressStep);
-                updateProgress(newProgress, 'Processing images...');
-            }
-        }, 500);
-        
-        const data = await response.json();
-        
-        clearInterval(progressInterval);
-        
-        // Show final progress with image count
-        const totalImages = data.total_images_searched || 0;
-        const imagesByAlbum = data.images_by_album || {};
-        let albumInfo = '';
-        if (Object.keys(imagesByAlbum).length > 0) {
-            const albumCounts = Object.entries(imagesByAlbum)
-                .map(([url, count]) => `${truncateUrl(url, 30)}: ${count} images`)
-                .join(', ');
-            albumInfo = ` (${albumCounts})`;
-        }
-        
-        updateProgress(100, `Complete! Searched ${totalImages} images${albumInfo}`);
+        const jobData = await response.json();
         
         if (!response.ok) {
-            throw new Error(data.detail || 'Search failed');
+            throw new Error(jobData.detail || 'Failed to start job');
         }
         
-        // Display results
-        displayResults(data);
+        currentJobId = jobData.jobId;
+        
+        // Start polling
+        startJobPolling(currentJobId);
         
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message || 'An error occurred while searching. Please try again.');
-    } finally {
-        setTimeout(() => {
-            setLoading(false);
-        }, 500);
+        showError(error.message || 'An error occurred while starting the search.');
+        setLoading(false);
     }
 });
+
+function startJobPolling(jobId) {
+    if (jobPollInterval) {
+        clearInterval(jobPollInterval);
+    }
+    
+    jobPollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_URL}/jobs/${jobId}/status`, {
+                credentials: 'include'
+            });
+            const job = await response.json();
+            
+            // Update progress
+            if (job.total > 0) {
+                const percentage = (job.processed / job.total) * 100;
+                updateProgress(percentage, `Processed ${job.processed} / ${job.total} images`);
+            } else if (job.phase === 'listing') {
+                updateProgress(10, 'Listing files...');
+            } else if (job.phase === 'queued') {
+                updateProgress(5, 'Job queued...');
+            }
+            
+            // Check if done
+            if (job.phase === 'done' || job.phase === 'error') {
+                clearInterval(jobPollInterval);
+                jobPollInterval = null;
+                
+                if (job.phase === 'error') {
+                    showError(job.error || 'Job failed');
+                    setLoading(false);
+                } else {
+                    updateProgress(100, `Complete! Found ${job.matches.length} matches`);
+                    displayJobResults(job);
+                    setTimeout(() => {
+                        setLoading(false);
+                    }, 1000);
+                }
+            }
+        } catch (error) {
+            console.error('Error polling job:', error);
+            clearInterval(jobPollInterval);
+            jobPollInterval = null;
+            showError('Error checking job status');
+            setLoading(false);
+        }
+    }, 1000); // Poll every second
+}
+
+function displayJobResults(job) {
+    const matches = job.matches || [];
+    const total = job.total || 0;
+    
+    // Update summary
+    resultsSummary.innerHTML = `
+        <div>Found <strong>${matches.length}</strong> matching image(s) out of <strong>${total}</strong> total images searched.</div>
+    `;
+    
+    // Clear previous results
+    resultsGrid.innerHTML = '';
+    
+    if (matches.length === 0) {
+        resultsGrid.innerHTML = '<div class="text-center text-gray-500 py-8">No matches found.</div>';
+        resultsContainer.classList.remove('hidden');
+        return;
+    }
+    
+    // Create image grid
+    const imageGrid = document.createElement('div');
+    imageGrid.className = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4';
+    
+    matches.forEach(match => {
+        const imageCard = document.createElement('div');
+        imageCard.className = 'relative group';
+        
+        const img = document.createElement('img');
+        // Use thumbnail if available, otherwise use download link
+        img.src = match.thumbnailLink || match.webContentLink || match.downloadUrl || match.webUrl || '';
+        img.alt = match.name || 'Matching photo';
+        img.className = 'w-full h-48 object-cover rounded-md shadow-sm hover:shadow-lg transition-shadow cursor-pointer';
+        img.loading = 'lazy';
+        
+        // Open full image on click
+        img.addEventListener('click', () => {
+            const url = match.webContentLink || match.downloadUrl || match.webUrl;
+            if (url) {
+                window.open(url, '_blank');
+            }
+        });
+        
+        // Add name overlay
+        if (match.name) {
+            const nameOverlay = document.createElement('div');
+            nameOverlay.className = 'absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-2 rounded-b-md';
+            nameOverlay.textContent = match.name;
+            imageCard.appendChild(nameOverlay);
+        }
+        
+        imageCard.appendChild(img);
+        imageGrid.appendChild(imageCard);
+    });
+    
+    resultsGrid.appendChild(imageGrid);
+    resultsContainer.classList.remove('hidden');
+    resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 function setLoading(isLoading) {
     if (isLoading) {
@@ -142,6 +302,10 @@ function setLoading(isLoading) {
         searchButton.disabled = false;
         searchButton.classList.remove('opacity-50', 'cursor-not-allowed');
         updateProgress(0, '');
+        if (jobPollInterval) {
+            clearInterval(jobPollInterval);
+            jobPollInterval = null;
+        }
     }
 }
 
@@ -169,90 +333,6 @@ function hideResults() {
     resultsContainer.classList.add('hidden');
 }
 
-function displayResults(data) {
-    const results = data.results || {};
-    const totalMatches = data.total_matches || 0;
-    const totalSearched = data.total_images_searched || 0;
-    const imagesByAlbum = data.images_by_album || {};
-    
-    // Update summary with detailed info
-    let summaryText = `Found ${totalMatches} matching image(s) out of ${totalSearched} total images searched.`;
-    
-    if (Object.keys(imagesByAlbum).length > 0) {
-        summaryText += '\n\nImages found per link:';
-        for (const [url, count] of Object.entries(imagesByAlbum)) {
-            summaryText += `\n• ${truncateUrl(url, 50)}: ${count} images`;
-        }
-    }
-    
-    resultsSummary.innerHTML = summaryText.split('\n').map(line => {
-        if (line.startsWith('•')) {
-            return `<div class="text-sm mt-1">${line}</div>`;
-        }
-        return `<div>${line}</div>`;
-    }).join('');
-    
-    // Clear previous results
-    resultsGrid.innerHTML = '';
-    
-    // Display results by album
-    for (const [albumUrl, imageUrls] of Object.entries(results)) {
-        if (imageUrls.length === 0) {
-            continue;
-        }
-        
-        const albumSection = document.createElement('div');
-        albumSection.className = 'bg-white rounded-lg shadow-md p-6';
-        
-        const albumHeader = document.createElement('div');
-        albumHeader.className = 'mb-4';
-        
-        const albumTitle = document.createElement('h3');
-        albumTitle.className = 'text-xl font-semibold text-gray-900 mb-2';
-        albumTitle.textContent = `Album: ${truncateUrl(albumUrl)}`;
-        albumHeader.appendChild(albumTitle);
-        
-        const matchCount = document.createElement('p');
-        matchCount.className = 'text-sm text-gray-600';
-        matchCount.textContent = `${imageUrls.length} matching image(s)`;
-        albumHeader.appendChild(matchCount);
-        
-        albumSection.appendChild(albumHeader);
-        
-        // Create image grid
-        const imageGrid = document.createElement('div');
-        imageGrid.className = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4';
-        
-        imageUrls.forEach(imageUrl => {
-            const imageCard = document.createElement('div');
-            imageCard.className = 'relative group';
-            
-            const img = document.createElement('img');
-            img.src = imageUrl;
-            img.alt = 'Matching photo';
-            img.className = 'w-full h-48 object-cover rounded-md shadow-sm hover:shadow-lg transition-shadow cursor-pointer';
-            img.loading = 'lazy';
-            
-            // Open full image on click
-            img.addEventListener('click', () => {
-                window.open(imageUrl, '_blank');
-            });
-            
-            imageCard.appendChild(img);
-            imageGrid.appendChild(imageCard);
-        });
-        
-        albumSection.appendChild(imageGrid);
-        resultsGrid.appendChild(albumSection);
-    }
-    
-    // Show results container
-    resultsContainer.classList.remove('hidden');
-    
-    // Scroll to results
-    resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function truncateUrl(url, maxLength = 60) {
     if (url.length <= maxLength) {
         return url;
@@ -260,8 +340,9 @@ function truncateUrl(url, maxLength = 60) {
     return url.substring(0, maxLength) + '...';
 }
 
-// Check API health on load
+// Initialize on load
 window.addEventListener('load', async () => {
+    // Check API health
     try {
         const response = await fetch(`${API_URL}/health`);
         if (!response.ok) {
@@ -270,4 +351,7 @@ window.addEventListener('load', async () => {
     } catch (error) {
         showError('Cannot connect to backend API. Please make sure the server is running on port 8000.');
     }
+    
+    // Check auth status
+    await checkAuthStatus();
 });

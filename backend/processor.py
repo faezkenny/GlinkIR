@@ -290,6 +290,104 @@ class ImageProcessor:
         
         return results
 
+    def _bytes_to_rgb_np(self, image_bytes: bytes) -> np.ndarray:
+        """Convert image bytes to RGB numpy array."""
+        img = Image.open(BytesIO(image_bytes))
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        return np.array(img)
+
+    def find_faces_in_uploaded_bytes(self, image_bytes: bytes, target_encodings: List[np.ndarray]) -> bool:
+        """
+        Check if any target faces are found in an image from bytes.
+        Uses high recall tolerance to minimize false negatives.
+        
+        Args:
+            image_bytes: Image data as bytes
+            target_encodings: List of face encodings to search for
+            
+        Returns:
+            True if a match is found, False otherwise
+        """
+        try:
+            image_array = self._bytes_to_rgb_np(image_bytes)
+            
+            # Find faces in the image
+            face_locations = face_recognition.face_locations(image_array)
+            
+            if not face_locations:
+                return False
+            
+            # Get encodings for all faces found
+            face_encodings = face_recognition.face_encodings(image_array, face_locations)
+            
+            # Compare with target encodings using high recall tolerance
+            for target_enc in target_encodings:
+                matches = face_recognition.compare_faces(
+                    face_encodings,
+                    target_enc,
+                    tolerance=self.face_tolerance  # More permissive = higher recall
+                )
+                if any(matches):
+                    return True
+            
+            return False
+        except Exception as e:
+            print(f"Error processing faces from bytes: {e}")
+            return False
+
+    def find_text_in_uploaded_bytes(self, image_bytes: bytes, search_text: str) -> bool:
+        """
+        Search for text (jersey number or other text) in an image from bytes using OCR.
+        Uses lower confidence threshold for higher recall.
+        
+        Args:
+            image_bytes: Image data as bytes
+            search_text: Text to search for (case-insensitive)
+            
+        Returns:
+            True if text is found, False otherwise
+        """
+        try:
+            image_array = self._bytes_to_rgb_np(image_bytes)
+            
+            # Run OCR with lower confidence threshold for higher recall
+            results = self.ocr_reader.readtext(image_array)
+            
+            # Extract all detected text
+            detected_texts = []
+            for (bbox, text, confidence) in results:
+                if confidence >= self.ocr_confidence_threshold:
+                    detected_texts.append(text)
+            
+            # Check if search text is in any detected text
+            search_text_lower = search_text.lower().strip()
+            search_text_clean = re.sub(r'[^\w\s]', '', search_text_lower)  # Remove punctuation
+            
+            for detected_text in detected_texts:
+                detected_lower = detected_text.lower()
+                detected_clean = re.sub(r'[^\w\s]', '', detected_lower)
+                
+                # Direct match
+                if search_text_lower in detected_lower:
+                    return True
+                
+                # Clean match (without punctuation)
+                if search_text_clean in detected_clean:
+                    return True
+                
+                # For numbers, also check if the number appears as standalone or in context
+                if search_text_clean.isdigit():
+                    # Look for the number as a word or standalone
+                    number_pattern = r'\b' + re.escape(search_text_clean) + r'\b'
+                    if re.search(number_pattern, detected_clean):
+                        return True
+            
+            return False
+        except Exception as e:
+            print(f"Error processing text from bytes: {e}")
+            return False
+
 
 # Global processor instance (will be initialized in main.py)
 processor: Optional[ImageProcessor] = None
