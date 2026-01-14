@@ -30,17 +30,41 @@ let jobPollInterval = null;
 
 // Detect provider from URL
 function detectProvider(url) {
-    if (url.includes('drive.google.com') || url.includes('docs.google.com')) {
+    if (!url || typeof url !== 'string') {
+        return 'unknown';
+    }
+    
+    const lowerUrl = url.toLowerCase().trim();
+    
+    // Google Drive patterns
+    if (lowerUrl.includes('drive.google.com') || 
+        lowerUrl.includes('docs.google.com') ||
+        lowerUrl.includes('photos.google.com') ||
+        lowerUrl.includes('photos.app.goo.gl')) {
         return 'google_drive';
-    } else if (url.includes('onedrive.live.com') || url.includes('1drv.ms') || url.includes('sharepoint.com')) {
+    }
+    
+    // OneDrive patterns
+    if (lowerUrl.includes('onedrive.live.com') || 
+        lowerUrl.includes('1drv.ms') || 
+        lowerUrl.includes('sharepoint.com') ||
+        lowerUrl.includes('office365.com') ||
+        lowerUrl.includes('microsoft.com/share')) {
         return 'onedrive';
     }
+    
     return 'unknown';
 }
 
 // Update provider hint and smart login button
 async function updateProviderUI(url) {
-    if (!url) {
+    // Ensure DOM elements exist
+    if (!providerHint || !smartLoginBtn || !googleLoginBtn || !microsoftLoginBtn || !smartLoginText) {
+        console.error('DOM elements not found');
+        return;
+    }
+    
+    if (!url || url.trim() === '') {
         providerHint.textContent = 'Enter a Google Drive or OneDrive folder link';
         providerHint.className = 'mt-1 text-sm text-gray-500';
         smartLoginBtn.classList.add('hidden');
@@ -50,13 +74,24 @@ async function updateProviderUI(url) {
     }
     
     const provider = detectProvider(url);
-    const authStatus = await fetch(`${API_URL}/auth/me`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ loggedIn: false }));
+    console.log('Detected provider:', provider, 'for URL:', url);
+    
+    let authStatus = { loggedIn: false, google: false, microsoft: false };
+    try {
+        const response = await fetch(`${API_URL}/auth/me`, { credentials: 'include' });
+        if (response.ok) {
+            authStatus = await response.json();
+        }
+    } catch (error) {
+        console.error('Error checking auth status:', error);
+    }
     
     if (provider === 'google_drive') {
         providerHint.textContent = '✓ Google Drive folder detected';
         providerHint.className = 'mt-1 text-sm text-green-600 font-medium';
         
         if (authStatus.google) {
+            providerHint.textContent = '✓ Google Drive folder detected - Already logged in';
             smartLoginBtn.classList.add('hidden');
             googleLoginBtn.classList.remove('hidden');
             microsoftLoginBtn.classList.remove('hidden');
@@ -66,13 +101,16 @@ async function updateProviderUI(url) {
             googleLoginBtn.classList.add('hidden');
             microsoftLoginBtn.classList.add('hidden');
             smartLoginText.textContent = '🔵 Login with Google';
-            smartLoginBtn.onclick = () => window.location.href = `${API_URL}/auth/google/start`;
+            smartLoginBtn.onclick = () => {
+                window.location.href = `${API_URL}/auth/google/start`;
+            };
         }
     } else if (provider === 'onedrive') {
         providerHint.textContent = '✓ OneDrive folder detected';
         providerHint.className = 'mt-1 text-sm text-green-600 font-medium';
         
         if (authStatus.microsoft) {
+            providerHint.textContent = '✓ OneDrive folder detected - Already logged in';
             smartLoginBtn.classList.add('hidden');
             googleLoginBtn.classList.remove('hidden');
             microsoftLoginBtn.classList.remove('hidden');
@@ -82,19 +120,33 @@ async function updateProviderUI(url) {
             googleLoginBtn.classList.add('hidden');
             microsoftLoginBtn.classList.add('hidden');
             smartLoginText.textContent = '🔷 Login with Microsoft';
-            smartLoginBtn.onclick = () => window.location.href = `${API_URL}/auth/microsoft/start`;
+            smartLoginBtn.onclick = () => {
+                window.location.href = `${API_URL}/auth/microsoft/start`;
+            };
         }
     } else {
-        providerHint.textContent = 'Enter a Google Drive or OneDrive folder link';
-        providerHint.className = 'mt-1 text-sm text-gray-500';
+        providerHint.textContent = `⚠️ Unknown provider. Please use Google Drive or OneDrive link. (Detected: ${url.substring(0, 50)}...)`;
+        providerHint.className = 'mt-1 text-sm text-orange-600';
         smartLoginBtn.classList.add('hidden');
         googleLoginBtn.classList.remove('hidden');
         microsoftLoginBtn.classList.remove('hidden');
     }
 }
 
+// Add event listener with debouncing
+let updateTimeout = null;
 folderUrlInput.addEventListener('input', (e) => {
-    updateProviderUI(e.target.value.trim());
+    clearTimeout(updateTimeout);
+    updateTimeout = setTimeout(() => {
+        updateProviderUI(e.target.value.trim());
+    }, 300); // Debounce for 300ms
+});
+
+// Also trigger on paste
+folderUrlInput.addEventListener('paste', (e) => {
+    setTimeout(() => {
+        updateProviderUI(folderUrlInput.value.trim());
+    }, 100);
 });
 
 // Login buttons
@@ -402,4 +454,9 @@ window.addEventListener('load', async () => {
     
     // Check auth status
     await checkAuthStatus();
+    
+    // Check if URL is already in input field
+    if (folderUrlInput && folderUrlInput.value.trim()) {
+        updateProviderUI(folderUrlInput.value.trim());
+    }
 });
