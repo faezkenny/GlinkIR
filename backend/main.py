@@ -41,18 +41,21 @@ MICROSOFT_CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET", "")
 MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8000/auth/microsoft/callback")
 
 # Enable CORS for frontend
+# SECURITY: Never use "*" with allow_credentials=True in production!
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN, "*"],  # In production, specify your frontend domain
+    allow_origins=[FRONTEND_ORIGIN] if FRONTEND_ORIGIN else [],  # Only allow configured origin
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],  # Limit to needed methods only
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # In-memory stores (replace with Redis/DB in production)
+# SECURITY: These should be encrypted/secure storage in production
 SESSIONS: Dict[str, Dict[str, Any]] = {}
 OAUTH_STATES: Dict[str, Dict[str, Any]] = {}
 JOBS: Dict[str, Dict[str, Any]] = {}
+JOB_OWNERS: Dict[str, str] = {}  # Map job_id to session_id for authorization
 
 # Initialize processor
 processor: Optional[ImageProcessor] = None
@@ -198,10 +201,11 @@ async def search_photos(
     except HTTPException:
         raise
     except Exception as e:
+        # SECURITY: Don't leak internal error details to clients
         print(f"Error processing search request: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error: {str(e)}"
+            detail="An error occurred while processing your request. Please try again."
         )
 
 
@@ -264,17 +268,27 @@ async def google_auth_start(request: Request):
     
     auth_url = httpx.URL("https://accounts.google.com/o/oauth2/v2/auth").copy_add_params(params)
     resp = RedirectResponse(str(auth_url), status_code=302)
-    resp.set_cookie("irpl_sid", sid, httponly=True, samesite="lax", max_age=86400 * 7)
+    # SECURITY: Secure cookie settings
+    resp.set_cookie(
+        "irpl_sid", 
+        sid, 
+        httponly=True,  # Prevent XSS
+        samesite="lax",  # CSRF protection
+        max_age=86400 * 7,  # 7 days
+        secure=False  # Set to True in production with HTTPS
+    )
     return resp
 
 
 @app.get("/auth/google/callback")
 async def google_auth_callback(code: str, state: str):
     """Handle Google OAuth callback."""
+    # SECURITY: Validate state to prevent CSRF attacks
     if state not in OAUTH_STATES or OAUTH_STATES[state]["provider"] != "google":
-        raise HTTPException(status_code=400, detail="Invalid state")
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
     
     sid = OAUTH_STATES.pop(state)["sid"]
+    # SECURITY: Clean up expired states (in production, add TTL)
     
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="Google OAuth not configured")
@@ -302,7 +316,15 @@ async def google_auth_callback(code: str, state: str):
     SESSIONS[sid]["google_token"] = token_data
     
     resp = RedirectResponse(FRONTEND_ORIGIN, status_code=302)
-    resp.set_cookie("irpl_sid", sid, httponly=True, samesite="lax", max_age=86400 * 7)
+    # SECURITY: Secure cookie settings
+    resp.set_cookie(
+        "irpl_sid", 
+        sid, 
+        httponly=True,  # Prevent XSS
+        samesite="lax",  # CSRF protection
+        max_age=86400 * 7,  # 7 days
+        secure=False  # Set to True in production with HTTPS
+    )
     return resp
 
 
@@ -326,17 +348,27 @@ async def microsoft_auth_start(request: Request):
     
     auth_url = httpx.URL("https://login.microsoftonline.com/common/oauth2/v2.0/authorize").copy_add_params(params)
     resp = RedirectResponse(str(auth_url), status_code=302)
-    resp.set_cookie("irpl_sid", sid, httponly=True, samesite="lax", max_age=86400 * 7)
+    # SECURITY: Secure cookie settings
+    resp.set_cookie(
+        "irpl_sid", 
+        sid, 
+        httponly=True,  # Prevent XSS
+        samesite="lax",  # CSRF protection
+        max_age=86400 * 7,  # 7 days
+        secure=False  # Set to True in production with HTTPS
+    )
     return resp
 
 
 @app.get("/auth/microsoft/callback")
 async def microsoft_auth_callback(code: str, state: str):
     """Handle Microsoft OAuth callback."""
+    # SECURITY: Validate state to prevent CSRF attacks
     if state not in OAUTH_STATES or OAUTH_STATES[state]["provider"] != "microsoft":
-        raise HTTPException(status_code=400, detail="Invalid state")
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
     
     sid = OAUTH_STATES.pop(state)["sid"]
+    # SECURITY: Clean up expired states (in production, add TTL)
     
     if not MICROSOFT_CLIENT_ID or not MICROSOFT_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="Microsoft OAuth not configured")
@@ -364,7 +396,15 @@ async def microsoft_auth_callback(code: str, state: str):
     SESSIONS[sid]["microsoft_token"] = token_data
     
     resp = RedirectResponse(FRONTEND_ORIGIN, status_code=302)
-    resp.set_cookie("irpl_sid", sid, httponly=True, samesite="lax", max_age=86400 * 7)
+    # SECURITY: Secure cookie settings
+    resp.set_cookie(
+        "irpl_sid", 
+        sid, 
+        httponly=True,  # Prevent XSS
+        samesite="lax",  # CSRF protection
+        max_age=86400 * 7,  # 7 days
+        secure=False  # Set to True in production with HTTPS
+    )
     return resp
 
 
@@ -390,7 +430,7 @@ async def _run_job(
     folder_url: str,
     search_text: Optional[str],
     face_bytes: Optional[bytes],
-    request: Request,
+    session_id: str,  # SECURITY: Pass session_id instead of request object
 ):
     """Run a search job in the background."""
     job = JOBS[job_id]
@@ -399,9 +439,15 @@ async def _run_job(
     try:
         job["phase"] = "listing"
         
+        # SECURITY: Get token from session (request object not available in background task)
+        if session_id not in SESSIONS:
+            raise Exception("Session expired")
+        
         # Get files based on provider
         if provider == "google_drive":
-            access_token = _require_google_token(request)
+            if not SESSIONS[session_id].get("google_token"):
+                raise Exception("Google token not found")
+            access_token = SESSIONS[session_id]["google_token"]["access_token"]
             folder_id = extract_google_drive_folder_id(folder_url)
             files = await list_google_drive_images(access_token, folder_id)
             job["total"] = len(files)
@@ -438,7 +484,9 @@ async def _run_job(
                     job["processed"] += 1
         
         elif provider == "onedrive":
-            access_token = _require_microsoft_token(request)
+            if not SESSIONS[session_id].get("microsoft_token"):
+                raise Exception("Microsoft token not found")
+            access_token = SESSIONS[session_id]["microsoft_token"]["access_token"]
             files = await list_onedrive_images(access_token, folder_url)
             job["total"] = len(files)
             
@@ -513,12 +561,20 @@ async def jobs_start(
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported provider. Please use Google Drive or OneDrive links.")
     
+    # SECURITY: Validate file size (max 10MB for face image) and read bytes
     face_bytes = None
     if face_image:
         face_bytes = await face_image.read()
+        if len(face_bytes) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(status_code=400, detail="Face image too large (max 10MB)")
     
     if not face_bytes and not search_text:
         raise HTTPException(status_code=400, detail="Either face_image or search_text must be provided")
+    
+    # SECURITY: Get session ID for job ownership
+    sid = request.cookies.get("irpl_sid")
+    if not sid or sid not in SESSIONS:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     
     job_id = secrets.token_urlsafe(16)
     JOBS[job_id] = {
@@ -529,18 +585,25 @@ async def jobs_start(
         "matches": [],
         "errors": [],
     }
+    JOB_OWNERS[job_id] = sid  # SECURITY: Track job ownership
     
-    # Start background task
-    asyncio.create_task(_run_job(job_id, folder_url, search_text, face_bytes, request))
+    # Start background task (pass session_id instead of request)
+    asyncio.create_task(_run_job(job_id, folder_url, search_text, face_bytes, sid))
     
     return _job_public(JOBS[job_id])
 
 
 @app.get("/jobs/{job_id}/status")
-async def jobs_status(job_id: str):
+async def jobs_status(job_id: str, request: Request):
     """Get job status."""
+    # SECURITY: Verify job ownership
     if job_id not in JOBS:
         raise HTTPException(status_code=404, detail="Job not found")
+    
+    sid = request.cookies.get("irpl_sid")
+    if not sid or JOB_OWNERS.get(job_id) != sid:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
     return _job_public(JOBS[job_id])
 
 

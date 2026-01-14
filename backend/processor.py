@@ -42,7 +42,8 @@ class ImageProcessor:
 
     def _get_cache_key(self, image_url: str) -> str:
         """Generate a cache key for an image URL."""
-        return hashlib.md5(image_url.encode()).hexdigest()
+        # SECURITY: Use SHA256 instead of MD5 for better security
+        return hashlib.sha256(image_url.encode()).hexdigest()
 
     def _load_image_from_url(self, url: str) -> Optional[np.ndarray]:
         """
