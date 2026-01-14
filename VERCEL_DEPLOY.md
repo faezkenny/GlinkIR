@@ -1,28 +1,33 @@
 # Vercel Deployment Guide
 
-## Prerequisites
+## Quick Deploy
 
-1. Install Vercel CLI:
+Run the deployment script:
 ```bash
-npm i -g vercel
+cd /Users/eddy/IRPhotolink
+./deploy.sh
 ```
 
-2. Login to Vercel:
+Or manually:
+
+### 1. Login to Vercel
 ```bash
 vercel login
 ```
 
-## Deployment Steps
-
-### 1. Link to Vercel Project
+### 2. Link Project (first time only)
 ```bash
-cd /Users/eddy/IRPhotolink
 vercel link
 ```
 
-### 2. Set Environment Variables
+### 3. Deploy
+```bash
+vercel --prod --yes
+```
 
-In Vercel Dashboard → Project Settings → Environment Variables, add:
+## Environment Variables Setup
+
+After first deployment, go to **Vercel Dashboard** → Your Project → **Settings** → **Environment Variables** and add:
 
 ```
 FRONTEND_ORIGIN=https://your-project.vercel.app
@@ -34,22 +39,21 @@ MICROSOFT_CLIENT_SECRET=your_microsoft_client_secret
 MICROSOFT_REDIRECT_URI=https://your-project.vercel.app/auth/microsoft/callback
 ```
 
-**Important**: Update your OAuth app redirect URIs in Google Cloud Console and Azure Portal to match your Vercel URL!
+**⚠️ CRITICAL**: After deployment, update OAuth redirect URIs:
+- **Google Cloud Console**: Add `https://your-project.vercel.app/auth/google/callback`
+- **Azure Portal**: Add `https://your-project.vercel.app/auth/microsoft/callback`
 
-### 3. Deploy
-```bash
-vercel --prod
-```
+## Project Structure
 
-## Project Structure for Vercel
-
-- `api/` - Serverless functions (FastAPI backend)
-- `frontend/` - Static files (HTML/JS)
+- `api/index.py` - Vercel serverless function entry point
+- `backend/` - FastAPI application code
+- `frontend/` - Static HTML/JS files
 - `vercel.json` - Vercel configuration
+- `requirements.txt` - Python dependencies
 
-## Notes
+## Important Notes
 
-- Backend runs as serverless functions
-- Frontend is served as static files
-- Environment variables are set in Vercel dashboard
-- OAuth redirect URIs must match your Vercel domain
+- Backend runs as serverless functions (may have cold starts)
+- Environment variables must be set in Vercel dashboard
+- OAuth redirect URIs must exactly match your Vercel domain
+- For production, consider using Vercel's environment variable encryption
