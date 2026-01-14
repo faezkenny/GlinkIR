@@ -21,6 +21,8 @@ const loginStatus = document.getElementById('loginStatus');
 const loginStatusText = document.getElementById('loginStatusText');
 const googleLoginBtn = document.getElementById('googleLoginBtn');
 const microsoftLoginBtn = document.getElementById('microsoftLoginBtn');
+const smartLoginBtn = document.getElementById('smartLoginBtn');
+const smartLoginText = document.getElementById('smartLoginText');
 const providerHint = document.getElementById('providerHint');
 
 let currentJobId = null;
@@ -36,25 +38,63 @@ function detectProvider(url) {
     return 'unknown';
 }
 
-// Update provider hint
-folderUrlInput.addEventListener('input', (e) => {
-    const url = e.target.value.trim();
-    if (url) {
-        const provider = detectProvider(url);
-        if (provider === 'google_drive') {
-            providerHint.textContent = 'Google Drive folder detected. Please login with Google.';
-            providerHint.className = 'mt-1 text-sm text-blue-600';
-        } else if (provider === 'onedrive') {
-            providerHint.textContent = 'OneDrive folder detected. Please login with Microsoft.';
-            providerHint.className = 'mt-1 text-sm text-blue-600';
+// Update provider hint and smart login button
+async function updateProviderUI(url) {
+    if (!url) {
+        providerHint.textContent = 'Enter a Google Drive or OneDrive folder link';
+        providerHint.className = 'mt-1 text-sm text-gray-500';
+        smartLoginBtn.classList.add('hidden');
+        googleLoginBtn.classList.remove('hidden');
+        microsoftLoginBtn.classList.remove('hidden');
+        return;
+    }
+    
+    const provider = detectProvider(url);
+    const authStatus = await fetch(`${API_URL}/auth/me`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ loggedIn: false }));
+    
+    if (provider === 'google_drive') {
+        providerHint.textContent = '✓ Google Drive folder detected';
+        providerHint.className = 'mt-1 text-sm text-green-600 font-medium';
+        
+        if (authStatus.google) {
+            smartLoginBtn.classList.add('hidden');
+            googleLoginBtn.classList.remove('hidden');
+            microsoftLoginBtn.classList.remove('hidden');
         } else {
-            providerHint.textContent = 'Enter a Google Drive or OneDrive folder link';
-            providerHint.className = 'mt-1 text-sm text-gray-500';
+            // Show smart login button for Google
+            smartLoginBtn.classList.remove('hidden');
+            googleLoginBtn.classList.add('hidden');
+            microsoftLoginBtn.classList.add('hidden');
+            smartLoginText.textContent = '🔵 Login with Google';
+            smartLoginBtn.onclick = () => window.location.href = `${API_URL}/auth/google/start`;
+        }
+    } else if (provider === 'onedrive') {
+        providerHint.textContent = '✓ OneDrive folder detected';
+        providerHint.className = 'mt-1 text-sm text-green-600 font-medium';
+        
+        if (authStatus.microsoft) {
+            smartLoginBtn.classList.add('hidden');
+            googleLoginBtn.classList.remove('hidden');
+            microsoftLoginBtn.classList.remove('hidden');
+        } else {
+            // Show smart login button for Microsoft
+            smartLoginBtn.classList.remove('hidden');
+            googleLoginBtn.classList.add('hidden');
+            microsoftLoginBtn.classList.add('hidden');
+            smartLoginText.textContent = '🔷 Login with Microsoft';
+            smartLoginBtn.onclick = () => window.location.href = `${API_URL}/auth/microsoft/start`;
         }
     } else {
         providerHint.textContent = 'Enter a Google Drive or OneDrive folder link';
         providerHint.className = 'mt-1 text-sm text-gray-500';
+        smartLoginBtn.classList.add('hidden');
+        googleLoginBtn.classList.remove('hidden');
+        microsoftLoginBtn.classList.remove('hidden');
     }
+}
+
+folderUrlInput.addEventListener('input', (e) => {
+    updateProviderUI(e.target.value.trim());
 });
 
 // Login buttons
@@ -74,15 +114,23 @@ async function checkAuthStatus() {
         });
         const data = await response.json();
         
+        loginStatus.classList.remove('hidden');
+        
         if (data.loggedIn) {
-            loginStatus.classList.remove('hidden');
             const providers = [];
-            if (data.google) providers.push('Google');
-            if (data.microsoft) providers.push('Microsoft');
-            loginStatusText.textContent = `Logged in with: ${providers.join(', ')}`;
+            if (data.google) providers.push('🔵 Google');
+            if (data.microsoft) providers.push('🔷 Microsoft');
+            loginStatusText.textContent = `✓ Logged in with: ${providers.join(', ')}`;
+            loginStatus.className = 'bg-green-50 border border-green-200 rounded-lg shadow-md p-4 mb-6';
         } else {
-            loginStatus.classList.remove('hidden');
-            loginStatusText.textContent = 'Not logged in. Please login to search cloud folders.';
+            loginStatusText.textContent = 'Not logged in. Enter a folder link above to see which provider to login with.';
+            loginStatus.className = 'bg-yellow-50 border border-yellow-200 rounded-lg shadow-md p-4 mb-6';
+        }
+        
+        // Update provider UI if URL is already entered
+        const url = folderUrlInput.value.trim();
+        if (url) {
+            updateProviderUI(url);
         }
     } catch (error) {
         console.error('Error checking auth:', error);

@@ -30,23 +30,31 @@
 
         <!-- Login Status -->
         <div id="loginStatus" class="bg-white rounded-lg shadow-md p-4 mb-6 hidden">
-            <div class="flex items-center justify-between">
-                <div>
+            <div class="flex items-center justify-between flex-wrap gap-4">
+                <div class="flex-1">
                     <p class="text-sm font-medium text-gray-700">Authentication Status</p>
                     <p id="loginStatusText" class="text-sm text-gray-500"></p>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex gap-2 flex-wrap">
+                    <!-- Smart Login Button (auto-detects provider) -->
+                    <button
+                        id="smartLoginBtn"
+                        class="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md hover:from-blue-700 hover:to-purple-700 text-sm font-medium shadow-sm hidden"
+                    >
+                        <span id="smartLoginText">Login</span>
+                    </button>
+                    <!-- Manual Login Buttons -->
                     <button
                         id="googleLoginBtn"
-                        class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
+                        class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium shadow-sm"
                     >
-                        Login with Google
+                        🔵 Login with Google
                     </button>
                     <button
                         id="microsoftLoginBtn"
-                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium shadow-sm"
                     >
-                        Login with Microsoft
+                        🔷 Login with Microsoft
                     </button>
                 </div>
             </div>
